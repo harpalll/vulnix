@@ -9,29 +9,38 @@ export interface Vulnerability {
 }
 
 export function fetchVulnerabilities(projectRoot: string): Vulnerability[] {
+  let output = "";
+
   try {
-    const output = execSync("npm audit --json", {
+    output = execSync("npm audit --json", {
       cwd: projectRoot,
-      stdio: ["ignore", "pipe", "ignore"],
+      stdio: ["ignore", "pipe", "pipe"],
     }).toString();
-
-    const audit = JSON.parse(output);
-    const vulns: Vulnerability[] = [];
-
-    if (!audit.vulnerabilities) return [];
-
-    for (const [name, data] of Object.entries<any>(audit.vulnerabilities)) {
-      vulns.push({
-        name,
-        severity: data.severity,
-        via: data.via.map((v: any) => (typeof v === "string" ? v : v.title)),
-        range: data.range,
-        fixAvailable: data.fixAvailable,
-      });
+  } catch (err: any) {
+    // ✅ npm audit throws when vulns exist — THIS IS EXPECTED
+    if (err.stdout) {
+      output = err.stdout.toString();
+    } else {
+      throw err;
     }
-
-    return vulns;
-  } catch (e) {
-    return [];
   }
+
+  const audit = JSON.parse(output);
+  const vulns: Vulnerability[] = [];
+
+  if (!audit.vulnerabilities) return [];
+
+  for (const [name, data] of Object.entries<any>(audit.vulnerabilities)) {
+    if (!data.via || data.via.length === 0) continue;
+
+    vulns.push({
+      name,
+      severity: data.severity,
+      via: data.via.map((v: any) => v.title),
+      range: data.range ?? "unknown",
+      fixAvailable: data.fixAvailable,
+    });
+  }
+
+  return vulns;
 }

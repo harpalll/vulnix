@@ -1,21 +1,61 @@
-import path from "path";
-import { scanDependencies } from "../agent/scanner";
-import { fetchVulnerabilities } from "../agent/vulnFetcher";
+#!/usr/bin/env node
 
-const projectRoot = process.cwd();
+import { fetchVulnerabilities } from "../agent/vulnFetcher.js";
+import {
+  explainVulnerabilities,
+  type ExplainedVulnerability,
+} from "../agent/explainer.js";
+import { callLLM } from "../agent/llm.js";
+import { renderVulnTable } from "../utils/renderVulnTable.js";
 
-console.log("🔍 Scanning npm project...");
+function renderExplanation(v: ExplainedVulnerability) {
+  const line = "─".repeat(Math.min(process.stdout.columns || 80, 80));
 
-const deps = scanDependencies(projectRoot);
-const vulns = fetchVulnerabilities(projectRoot);
+  console.log(`
+${line}
+📦 Package: ${v.name}
+Severity: ${v.severity.toUpperCase()}
+${line}
 
-if (vulns.length === 0) {
-  console.log("🎉 No known vulnerabilities found");
-  process.exit(0);
+${v.explanation}
+
+`);
 }
 
-console.log(`Found ${vulns.length} vulnerabilities:\n`);
+async function main() {
+  const command = process.argv[2];
+  const projectRoot = process.cwd();
+  console.log(process.env.GEMINI_API_KEY);
 
-for (const v of vulns) {
-  console.log(`- ${v.name} (${v.severity.toUpperCase()})`);
+  if (command === "explain") {
+    console.log("🧠 Explaining vulnerabilities...\n");
+
+    const vulns = fetchVulnerabilities(projectRoot);
+    renderVulnTable(vulns);
+    // console.log(vulns);
+
+    if (vulns.length === 0) {
+      console.log("🎉 No vulnerabilities to explain");
+      process.exit(0);
+    }
+
+    const explained = await explainVulnerabilities(vulns, callLLM);
+    console.log(explained);
+
+    for (const e of explained) {
+      // console.log(`📦 ${e.name}`);
+      // console.log(`Severity: ${e.severity.toUpperCase()}`);
+      // console.log(e.explanation);
+      // console.log("---\n");
+      renderExplanation(e);
+    }
+  } else {
+    console.log("Usage: vulnix explain");
+  }
 }
+
+main().catch((err) => {
+  console.error("❌ Vulnix failed:");
+  console.error(err);
+  process.exit(1);
+});
